@@ -1,0 +1,15 @@
+services:
+  ascii_curl:
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    build: ascii_curl
+    env_file:
+      - .env
+    ports:
+      - "8080:$PORT"
+    volumes:
+      - ./ascii_curl/ansi_frames:/ansi_frames/
+
+volumes:
+  ansi_frames:
