@@ -1,14 +1,14 @@
-package main
+package server
 
 import (
+	"ascii_curl/frames"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
-
-	"github.com/hugomd/ascii-live/frames"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -20,6 +20,10 @@ var NotFoundMessage = map[string]string{
 
 var NotCurledMessage = map[string]string{
 	"error": "You almost ruined a good surprise. Come on, curl it in terminal.",
+}
+
+var UpdateMessage = map[string]string{
+	"message": "Frames updated.",
 }
 
 var availableFrames []string
@@ -42,6 +46,11 @@ func writeJson(w http.ResponseWriter, r *http.Request, res interface{}, status i
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
 	writeJson(w, r, map[string][]string{"frames": availableFrames}, http.StatusOK)
+}
+
+func updateHandler(w http.ResponseWriter, r *http.Request) {
+	frames.UpdateFrames()
+	writeJson(w, r, UpdateMessage, http.StatusOK)
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +96,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				i = 0
 			}
 			// Artificially wait between reponses.
-			time.Sleep(frames.GetSleep())
+			time.Sleep(frames.GetDelay())
 
 			// Clear screen
 			clearScreen := "\033[2J\033[H"
@@ -104,24 +113,30 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Server.
-func main() {
+func InitServer() {
 	flag.Parse()
 	// Don't write to /tmp - doesn't work in docker scratch
 	flag.Set("logtostderr", "true")
 
 	r := mux.NewRouter()
 	r.HandleFunc("/list", listHandler).Methods("GET")
+	r.HandleFunc("/update", updateHandler).Methods("GET")
 	r.HandleFunc("/{frameSource}", handler).Methods("GET")
 	r.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		glog.Error("Environment variable PORT not set")
+		return
+	}
 	srv := &http.Server{
 		Handler: r,
-		Addr:    ":8080",
+		Addr:    ":" + port,
 		// Set unlimited read/write timeouts
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 	}
 
-	glog.Infof("Serving...")
+	glog.Infof("Serving on 0.0.0.0:%s ...", port)
 	glog.Fatal(srv.ListenAndServe())
 }
