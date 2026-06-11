@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ascii_curl:
     stdin_open: true

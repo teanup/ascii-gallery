@@ -33,4 +33,3 @@ gen_frames.sh [-o output_dir] [-n name] [-d delay] [-c color_depth] [-w width] <
 - `-d <delay>`: Frame delay in milliseconds. Default: `100`
 - `-c <color_depth>`: Color depth. Must be `1` (monochrome), `8` (256 colors), or `24` (true color). Default: `8`
 - `-w <width>`: Width of output. Default: `64`
-

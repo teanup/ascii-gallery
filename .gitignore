@@ -1,3 +1,2 @@
-.env
-ascii_curl/ansi_frames/*
-compose.yml
+.*
+ascii_curl/ansi_frames/
