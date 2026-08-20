@@ -1,0 +1,15 @@
+{
+  "name": "Go",
+  "image": "golang:1.26",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "golang.go"
+      ]
+    }
+  },
+  "containerUser": "1000"
+}

@@ -1,0 +1,21 @@
+services:
+  ascii-gallery:
+    image: ghcr.io/teanup/ascii-gallery:latest
+    container_name: ascii-gallery
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Port the server listens on (default 8080)
+      PORT: "8080"
+      # Where animation JSON files are stored (default /data)
+      DATA_DIR: "/data"
+      # Optional: public URL if behind a reverse proxy / load balancer.
+      # If unset, defaults to http://localhost:PORT
+      # EXTERNAL_URL: "https://ascii.example.com"
+    volumes:
+      # Persist animations between container restarts
+      - ascii-data:/data
+
+volumes:
+  ascii-data:

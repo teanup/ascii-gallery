@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII Gallery</title>
+<style>
+  :root {
+    --bg: #14101f;
+    --bg-soft: #1d1730;
+    --bg-input: #241c3a;
+    --border: #3a2f5c;
+    --accent: #9b7fd4;
+    --accent-soft: #7a5fb0;
+    --text: #e6e0f0;
+    --text-dim: #a89fc0;
+    --text-faint: #7a7290;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  h1 { color: var(--accent); font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { color: var(--accent); font-size: 1.25rem; margin-top: 2rem; }
+  a { color: var(--accent); }
+  .subtitle { color: var(--text-dim); margin-top: 0; }
+  code, pre, input, textarea {
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  }
+  code {
+    background: var(--bg-soft);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--text);
+  }
+  pre {
+    background: var(--bg-soft);
+    padding: 0.9rem 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+  }
+  ul { list-style: none; padding: 0; }
+  li {
+    background: var(--bg-soft);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  li .anim-name { font-weight: 600; }
+  li code { background: var(--bg-input); }
+
+  /* Drop zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 1.25rem;
+  }
+  .dropzone.dragover, .dropzone:hover {
+    border-color: var(--accent);
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+  .dropzone .dz-icon { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
+  .dropzone .dz-hint { font-size: 0.85em; color: var(--text-faint); }
+
+  /* Form */
+  .form-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .form-row .form-group { flex: 1; }
+  .form-group { margin-bottom: 1rem; }
+  label { display: block; margin-bottom: 0.3rem; font-weight: 600; font-size: 0.9em; }
+  input[type="text"], textarea {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.55rem 0.7rem;
+    border-radius: 6px;
+    width: 100%;
+    font-size: 0.9em;
+  }
+  input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; }
+
+  /* Sliders */
+  .slider-group { margin-bottom: 1.25rem; }
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.3rem;
+  }
+  .slider-header label { margin: 0; }
+  .slider-value { color: var(--accent); font-weight: 600; font-size: 0.9em; }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-input);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg);
+  }
+
+  button[type="submit"] {
+    background: var(--accent);
+    color: #1a1426;
+    border: none;
+    padding: 0.6rem 1.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    width: 100%;
+    transition: background 0.2s;
+  }
+  button[type="submit"]:hover { background: var(--accent-soft); }
+</style>
+</head>
+<body>
+  <h1>ASCII Gallery</h1>
+  <p class="subtitle">GIFs as animated ASCII art, viewable in your terminal with <code>curl</code>.</p>
+
+  <h2>Available Animations</h2>
+  {{if .Animations}}
+  <ul>
+    {{range .Animations}}
+    <li>
+      <span class="anim-name"><a href="/anim/{{.ID}}">{{.Name}}</a></span>
+      <code>curl {{$.BaseURL}}/anim/{{.ID}}</code>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p><em>No animations yet. Upload one below!</em></p>
+  {{end}}
+
+  <h2>Upload a GIF</h2>
+  <form id="upload-form" action="/anim" method="post" enctype="multipart/form-data">
+    <div class="dropzone" id="dropzone">
+      <span class="dz-icon">🎞️</span>
+      <span id="dz-text">Drag &amp; drop a GIF here, or click to select</span>
+      <span class="dz-hint" id="dz-file"></span>
+    </div>
+    <input type="file" name="file" id="file-input" accept=".gif,image/gif" hidden>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="id">ID</label>
+        <input type="text" name="id" id="id" placeholder="auto">
+      </div>
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" name="name" id="name" placeholder="auto">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="description">Description</label>
+      <textarea name="description" id="description" rows="2" placeholder="A brief description..."></textarea>
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-header">
+        <label for="width">Width</label>
+        <span class="slider-value" id="width-value">80</span>
+      </div>
+      <input type="range" name="width" id="width" min="16" max="320" value="80">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-header">
+        <label for="height">Height</label>
+        <span class="slider-value" id="height-value">auto</span>
+      </div>
+      <input type="range" name="height" id="height" min="8" max="80" value="0">
+    </div>
+
+    <button type="submit">Upload</button>
+  </form>
+
+  <h2>Usage</h2>
+  <p>View an animation in your terminal:</p>
+  <pre>curl {{.BaseURL}}/anim/{id}</pre>
+  <p>Upload from the command line:</p>
+  <pre>curl -F "file=@animation.gif" {{.BaseURL}}/anim</pre>
+  <p>Upload with custom dimensions:</p>
+  <pre>curl -F "file=@animation.gif" -F "width=120" -F "height=40" {{.BaseURL}}/anim</pre>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+  const dzText = document.getElementById('dz-text');
+  const dzFile = document.getElementById('dz-file');
+  const idInput = document.getElementById('id');
+  const nameInput = document.getElementById('name');
+  const widthSlider = document.getElementById('width');
+  const heightSlider = document.getElementById('height');
+  const widthValue = document.getElementById('width-value');
+  const heightValue = document.getElementById('height-value');
+
+  // Slider value display
+  widthSlider.addEventListener('input', () => {
+    widthValue.textContent = widthSlider.value;
+  });
+  heightSlider.addEventListener('input', () => {
+    heightValue.textContent = heightSlider.value === '0' ? 'auto' : heightSlider.value;
+  });
+
+  // Drop zone click -> open file picker
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  // Drag & drop
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, e => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    dropzone.addEventListener(evt, e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+    });
+  });
+  dropzone.addEventListener('drop', e => {
+    const files = e.dataTransfer.files;
+    if (files.length) {
+      fileInput.files = files;
+      handleFile(files[0]);
+    }
+  });
+
+  // File selected -> autofill ID and name
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    dzText.textContent = 'Selected:';
+    dzFile.textContent = file.name;
+    const base = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^\w-]/g, '').replace(/^-+|-+$/g, '');
+    if (!idInput.value) idInput.value = base;
+    if (!nameInput.value) nameInput.value = file.name.replace(/\.[^.]+$/, '');
+  }
+</script>
+</body>
+</html>
