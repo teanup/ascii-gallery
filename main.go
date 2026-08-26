@@ -11,6 +11,8 @@ import (
 	"github.com/teanup/ascii-gallery/store"
 )
 
+var version = "dev"
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -58,7 +60,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	log.Printf("ASCII Gallery server starting on :%s", port)
+	log.Printf("ASCII Gallery server (%s) starting on :%s", version, port)
 	log.Printf("Data directory: %s", dataDir)
 
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
