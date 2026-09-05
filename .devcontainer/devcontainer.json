@@ -1,6 +1,6 @@
 {
   "name": "Go",
-  "image": "golang:1.27",
+  "image": "golang:1.27.1",
   "customizations": {
     "vscode": {
       "settings": {
