@@ -1,7 +1,7 @@
 package handler
 
 import (
-	_ "embed"
+	_ "embed" // Embed HTML template
 	"html/template"
 	"net/http"
 	"strings"

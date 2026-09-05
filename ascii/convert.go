@@ -187,7 +187,10 @@ func selectFrames(count, maxFrames int) []int {
 	indices := make([]int, maxFrames)
 	for i := range maxFrames {
 		// Distribute evenly: pick frames at roughly equal intervals.
-		idx := i * (count - 1) / (maxFrames - 1)
+		idx := 0
+		if maxFrames > 1 {
+			idx = i * (count - 1) / (maxFrames - 1)
+		}
 		if idx >= count {
 			idx = count - 1
 		}

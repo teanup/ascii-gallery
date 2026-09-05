@@ -86,7 +86,7 @@ func (h *AnimationsHandler) GetAnimation(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Return metadata as JSON (without the frame data).
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"id":          anim.ID,
 		"name":        anim.Name,
 		"description": anim.Description,

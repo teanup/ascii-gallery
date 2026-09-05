@@ -19,9 +19,24 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    outputs:
+      coverage: ${{ steps.coverage.outputs.coverage }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests with coverage
+        id: coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "coverage=$(printf '%.0f' "$total")" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker
         uses: docker/setup-buildx-action@v4
@@ -33,6 +48,47 @@ jobs:
           tags: ${{ env.IMAGE }}:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  badge:
+    name: Update coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout badges branch
+        uses: actions/checkout@v7
+        with:
+          ref: badges
+
+      - name: Update coverage badge
+        run: |
+          coverage=${{ needs.test.outputs.coverage }}
+          color=$(awk -v t="$coverage" 'BEGIN {
+            if (t >= 90) print "brightgreen"
+            else if (t >= 80) print "green"
+            else if (t >= 60) print "yellow"
+            else if (t >= 40) print "orange"
+            else print "red"
+          }')
+          jq --arg msg "${coverage}%" --arg color "$color" \
+            '.message = $msg | .color = $color' coverage.json > tmp.json && mv tmp.json coverage.json
+          cat coverage.json
+
+      - name: Commit and push
+        env:
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "No coverage change"
+          else
+            git commit -m "chore: update coverage badge ([CI #${{ github.run_number }}]($RUN_URL))"
+            git push origin badges
+          fi
 
   publish:
     name: Publish image
