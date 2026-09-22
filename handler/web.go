@@ -4,8 +4,8 @@ import (
 	_ "embed" // Embed HTML template
 	"html/template"
 	"net/http"
-	"strings"
 
+	"github.com/teanup/ascii-gallery/model"
 	"github.com/teanup/ascii-gallery/store"
 )
 
@@ -15,12 +15,7 @@ var templateSource string
 // pageData is passed to the HTML template.
 type pageData struct {
 	BaseURL    string
-	Animations []animationSummary
-}
-
-type animationSummary struct {
-	ID   string
-	Name string
+	Animations []*model.Animation
 }
 
 // WebHandler serves the browser-facing HTML page.
@@ -42,24 +37,14 @@ func NewWebHandler(s *store.Store, baseURL string) *WebHandler {
 
 // ServeHome renders the HTML page for browsers, or curl help text.
 func (h *WebHandler) ServeHome(w http.ResponseWriter, r *http.Request) {
-	ua := r.UserAgent()
-	if strings.HasPrefix(ua, "curl") {
+	if isCurl(r.UserAgent()) {
 		h.serveCurlHelp(w)
 		return
 	}
 
-	ids, err := h.Store.List()
+	anims, err := h.Store.LoadAll()
 	if err != nil {
-		ids = nil
-	}
-
-	anims := make([]animationSummary, 0, len(ids))
-	for _, id := range ids {
-		anim, err := h.Store.Load(id)
-		if err != nil {
-			continue
-		}
-		anims = append(anims, animationSummary{ID: anim.ID, Name: anim.Name})
+		anims = nil
 	}
 
 	data := pageData{
@@ -74,29 +59,18 @@ func (h *WebHandler) ServeHome(w http.ResponseWriter, r *http.Request) {
 
 // serveCurlHelp writes the curl usage help text.
 func (h *WebHandler) serveCurlHelp(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	help := `ASCII Gallery - animated ASCII art server
-
-Usage:
-  List all animations:
-    curl ` + h.BaseURL + `/anim
-
-  View an animation (replace {id} with an animation ID):
-    curl ` + h.BaseURL + `/anim/{id}
-
-  Upload a new GIF:
-    curl -F "file=@animation.gif" ` + h.BaseURL + `/anim
-
-  Upload with custom options:
-    curl -F "file=@animation.gif" -F "id=myid" -F "name=My Animation" -F "width=120" ` + h.BaseURL + `/anim
-
-  Update an existing animation:
-    curl -X PUT -F "file=@animation.gif" ` + h.BaseURL + `/anim/{id}
-
-  Delete an animation:
-    curl -X DELETE ` + h.BaseURL + `/anim/{id}
-
-`
-	w.Write([]byte(help))
+	help := title("ASCII Gallery") + subtitle(" - animated ASCII art server") +
+		"\n\nList all animations:\n  " +
+		command("curl "+h.BaseURL+"/anim") +
+		"\n\nView an animation (replace {id} with an ID):\n  " +
+		command("curl "+h.BaseURL+"/anim/{id}") +
+		"\n\nUpload a new GIF:\n  " +
+		command("curl "+h.BaseURL+"/anim -F file=@animation.gif") +
+		"\n\nUpload with custom options:\n  " +
+		command("curl "+h.BaseURL+"/anim -F file=@animation.gif -F id=myid -F \"name=My Animation\" -F width=120") +
+		"\n\nUpdate an existing animation:\n  " +
+		command("curl "+h.BaseURL+"/anim/{id} -X PUT -F file=@animation.gif") +
+		"\n\nDelete an animation:\n  " +
+		command("curl "+h.BaseURL+"/anim/{id} -X DELETE") + "\n"
+	writeText(w, http.StatusOK, help)
 }

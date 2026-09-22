@@ -157,25 +157,78 @@
     transition: background 0.2s;
   }
   button[type="submit"]:hover { background: var(--accent-soft); }
+  button[type="submit"]:disabled { opacity: 0.6; cursor: default; }
+
+  /* Notifications */
+  #notifications {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: min(360px, calc(100vw - 2rem));
+  }
+  .notification {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.9em;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    animation: slide-in 0.2s ease-out;
+  }
+  .notification.success { border-left-color: #4caf7d; }
+  .notification.error { border-left-color: #d9534f; }
+  .notification .nt-title { font-weight: 600; display: block; margin-bottom: 0.15rem; }
+  .notification .nt-body { color: var(--text-dim); word-break: break-word; }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* List actions */
+  .anim-actions { display: flex; align-items: center; gap: 0.5rem; }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--text); }
+  .icon-btn.danger:hover { border-color: #d9534f; color: #d9534f; }
 </style>
 </head>
 <body>
+  <div id="notifications"></div>
+
   <h1>ASCII Gallery</h1>
   <p class="subtitle">Animated ASCII art gallery you can manage via <code>curl</code>.</p>
 
   <h2>Available Animations</h2>
-  {{if .Animations}}
-  <ul>
-    {{range .Animations}}
-    <li>
-      <span class="anim-name"><a href="/anim/{{.ID}}">{{.Name}}</a></span>
-      <code>curl {{$.BaseURL}}/anim/{{.ID}}</code>
-    </li>
+  <div id="animations">
+    {{if .Animations}}
+    <ul>
+      {{range .Animations}}
+      <li>
+        <span class="anim-name">{{.Name}}</span>
+        <span class="anim-actions">
+          <code>curl {{$.BaseURL}}/anim/{{.ID}}</code>
+          <button type="button" class="icon-btn danger" data-delete="{{.ID}}">Delete</button>
+        </span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p id="empty-hint"><em>No animations yet. Upload one below!</em></p>
     {{end}}
-  </ul>
-  {{else}}
-  <p><em>No animations yet. Upload one below!</em></p>
-  {{end}}
+  </div>
 
   <h2>Upload a GIF</h2>
   <form id="upload-form" action="/anim" method="post" enctype="multipart/form-data">
@@ -218,73 +271,153 @@
       <input type="range" name="height" id="height" min="8" max="80" value="0">
     </div>
 
-    <button type="submit">Upload</button>
+    <button type="submit" id="submit-btn">Upload</button>
   </form>
 
   <h2>Usage</h2>
   <p>View an animation in your terminal:</p>
   <pre>curl {{.BaseURL}}/anim/{id}</pre>
   <p>Upload from the command line:</p>
-  <pre>curl -F "file=@animation.gif" {{.BaseURL}}/anim</pre>
+  <pre>curl {{.BaseURL}}/anim -F "file=@animation.gif"</pre>
   <p>Upload with custom dimensions:</p>
-  <pre>curl -F "file=@animation.gif" -F "width=120" -F "height=40" {{.BaseURL}}/anim</pre>
+  <pre>curl {{.BaseURL}}/anim -F "file=@animation.gif" -F "width=120" -F "height=40"</pre>
 
 <script>
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('file-input');
-  const dzText = document.getElementById('dz-text');
-  const dzFile = document.getElementById('dz-file');
-  const idInput = document.getElementById('id');
-  const nameInput = document.getElementById('name');
-  const widthSlider = document.getElementById('width');
-  const heightSlider = document.getElementById('height');
-  const widthValue = document.getElementById('width-value');
-  const heightValue = document.getElementById('height-value');
+  const $ = id => document.getElementById(id);
+  const dropzone = $('dropzone'), fileInput = $('file-input'), dzText = $('dz-text'), dzFile = $('dz-file');
+  const idInput = $('id'), nameInput = $('name'), form = $('upload-form'), submitBtn = $('submit-btn');
+  const widthSlider = $('width'), heightSlider = $('height');
+  const widthValue = $('width-value'), heightValue = $('height-value');
+  const notifications = $('notifications'), animationsEl = $('animations');
 
   // Slider value display
-  widthSlider.addEventListener('input', () => {
-    widthValue.textContent = widthSlider.value;
-  });
-  heightSlider.addEventListener('input', () => {
-    heightValue.textContent = heightSlider.value === '0' ? 'auto' : heightSlider.value;
-  });
+  widthSlider.addEventListener('input', () => widthValue.textContent = widthSlider.value);
+  heightSlider.addEventListener('input', () => heightValue.textContent = heightSlider.value === '0' ? 'auto' : heightSlider.value);
 
   // Drop zone click -> open file picker
   dropzone.addEventListener('click', () => fileInput.click());
 
   // Drag & drop
-  ['dragenter', 'dragover'].forEach(evt => {
-    dropzone.addEventListener(evt, e => {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
-  });
-  ['dragleave', 'drop'].forEach(evt => {
-    dropzone.addEventListener(evt, e => {
-      e.preventDefault();
-      dropzone.classList.remove('dragover');
-    });
-  });
+  ['dragenter', 'dragover'].forEach(evt => dropzone.addEventListener(evt, e => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  }));
+  ['dragleave', 'drop'].forEach(evt => dropzone.addEventListener(evt, e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+  }));
   dropzone.addEventListener('drop', e => {
-    const files = e.dataTransfer.files;
-    if (files.length) {
-      fileInput.files = files;
-      handleFile(files[0]);
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      handleFile(e.dataTransfer.files[0]);
     }
   });
 
   // File selected -> autofill ID and name
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) handleFile(fileInput.files[0]);
-  });
+  fileInput.addEventListener('change', () => fileInput.files.length && handleFile(fileInput.files[0]));
 
   function handleFile(file) {
     dzText.textContent = 'Selected:';
     dzFile.textContent = file.name;
-    const base = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^\w-]/g, '').replace(/^-+|-+$/g, '');
-    if (!idInput.value) idInput.value = base;
-    if (!nameInput.value) nameInput.value = file.name.replace(/\.[^.]+$/, '');
+    const base = file.name.replace(/\.[^.]+$/, '');
+    if (!idInput.value) idInput.value = base.toLowerCase().replace(/[^\w-]/g, '').replace(/^-+|-+$/g, '');
+    if (!nameInput.value) nameInput.value = base;
   }
+
+  // notify shows a transient message in the corner of the page.
+  function notify(title, body, kind = '') {
+    const el = document.createElement('div');
+    el.className = 'notification ' + kind;
+    const t = document.createElement('span');
+    t.className = 'nt-title';
+    t.textContent = title;
+    const b = document.createElement('span');
+    b.className = 'nt-body';
+    b.textContent = body || '';
+    el.append(t, b);
+    notifications.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+  }
+
+  // api performs a fetch and returns the parsed JSON body, or throws with the
+  // server's error message.
+  async function api(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    return res.status === 204 ? null : res.json();
+  }
+
+  // renderAnimations rebuilds the animation list from the API.
+  async function renderAnimations() {
+    let list;
+    try {
+      list = await api('/anim');
+    } catch (err) {
+      notify('Failed to load animations', err.message, 'error');
+      return;
+    }
+
+    if (!list.length) {
+      animationsEl.innerHTML = '<p><em>No animations yet. Upload one below!</em></p>';
+      return;
+    }
+
+    const ul = document.createElement('ul');
+    for (const anim of list) {
+      const li = document.createElement('li');
+      li.innerHTML =
+        '<span class="anim-name"></span>' +
+        '<span class="anim-actions"><code></code><button type="button" class="icon-btn danger" data-delete>Delete</button></span>';
+      li.querySelector('.anim-name').textContent = anim.name;
+      li.querySelector('code').textContent = 'curl {{$.BaseURL}}/anim/' + anim.id;
+      li.querySelector('button').dataset.delete = anim.id;
+      ul.appendChild(li);
+    }
+    animationsEl.replaceChildren(ul);
+  }
+
+  // Upload via fetch so the user stays on the page.
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!fileInput.files.length) {
+      notify('No file selected', 'Choose a GIF to upload.', 'error');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Uploading…';
+    try {
+      const anim = await api('/anim', { method: 'POST', body: new FormData(form) });
+      notify('Uploaded', anim.name + ' (' + anim.id + ')', 'success');
+      form.reset();
+      dzText.textContent = 'Drag & drop a GIF here, or click to select';
+      dzFile.textContent = '';
+      widthValue.textContent = widthSlider.value;
+      heightValue.textContent = 'auto';
+      await renderAnimations();
+    } catch (err) {
+      notify('Upload failed', err.message, 'error');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Upload';
+    }
+  });
+
+  // Delete buttons are delegated since the list is re-rendered dynamically.
+  animationsEl.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-delete]');
+    if (!btn || !confirm('Delete "' + btn.dataset.delete + '"?')) return;
+
+    btn.disabled = true;
+    try {
+      await api('/anim/' + btn.dataset.delete, { method: 'DELETE' });
+      notify('Deleted', btn.dataset.delete, 'success');
+      await renderAnimations();
+    } catch (err) {
+      notify('Delete failed', err.message, 'error');
+      btn.disabled = false;
+    }
+  });
 </script>
 </body>
 </html>

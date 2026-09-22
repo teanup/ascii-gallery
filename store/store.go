@@ -88,6 +88,24 @@ func (s *Store) List() ([]string, error) {
 	return ids, nil
 }
 
+// LoadAll returns every stored animation, skipping unreadable ones.
+func (s *Store) LoadAll() ([]*model.Animation, error) {
+	ids, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+
+	anims := make([]*model.Animation, 0, len(ids))
+	for _, id := range ids {
+		anim, err := s.Load(id)
+		if err != nil {
+			continue
+		}
+		anims = append(anims, anim)
+	}
+	return anims, nil
+}
+
 // Delete removes an animation from disk.
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()

@@ -39,7 +39,7 @@ func main() {
 		log.Fatalf("EXTERNAL_URL must be a valid http(s) URL, got: %s", baseURL)
 	}
 
-	animHandler := handler.NewAnimationsHandler(s)
+	animHandler := handler.NewAnimationsHandler(s, baseURL)
 	webHandler := handler.NewWebHandler(s, baseURL)
 
 	mux := http.NewServeMux()

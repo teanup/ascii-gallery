@@ -82,7 +82,7 @@ func newTestServer(t *testing.T) *http.ServeMux {
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
-	animHandler := NewAnimationsHandler(s)
+	animHandler := NewAnimationsHandler(s, "http://localhost:8080")
 	webHandler := NewWebHandler(s, "http://localhost:8080")
 
 	mux := http.NewServeMux()
@@ -97,6 +97,18 @@ func newTestServer(t *testing.T) *http.ServeMux {
 
 // uploadGIF performs a multipart POST/PUT with the given gif bytes.
 func uploadGIF(t *testing.T, mux *http.ServeMux, method, path string, gifData []byte, fields map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	return uploadGIFAs(t, mux, method, path, gifData, fields, "")
+}
+
+// uploadGIFCurl is uploadGIF with a curl User-Agent.
+func uploadGIFCurl(t *testing.T, mux *http.ServeMux, method, path string, gifData []byte, fields map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	return uploadGIFAs(t, mux, method, path, gifData, fields, "curl/8.0")
+}
+
+// uploadGIFAs performs a multipart POST/PUT, optionally setting a User-Agent.
+func uploadGIFAs(t *testing.T, mux *http.ServeMux, method, path string, gifData []byte, fields map[string]string, userAgent string) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -116,6 +128,33 @@ func uploadGIF(t *testing.T, mux *http.ServeMux, method, path string, gifData []
 
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// get performs a GET request with the given User-Agent.
+func get(t *testing.T, mux *http.ServeMux, path, userAgent string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// del performs a DELETE request with the given User-Agent.
+func del(t *testing.T, mux *http.ServeMux, path, userAgent string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -213,8 +252,7 @@ func (w *failingResponseWriter) Write(p []byte) (int, error) { return w.writer.W
 
 func TestGetAnimationStreamsForCurl(t *testing.T) {
 	mux := newTestServer(t)
-	gifData := testGIF(t)
-	uploadGIF(t, mux, http.MethodPost, "/anim", gifData, map[string]string{"id": "stream"})
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "stream"})
 
 	req := httptest.NewRequest(http.MethodGet, "/anim/stream", nil)
 	req.Header.Set("User-Agent", "curl/8.0")
@@ -240,10 +278,7 @@ func TestListAnimations(t *testing.T) {
 	uploadGIF(t, mux, http.MethodPost, "/anim", gifData, map[string]string{"id": "alpha"})
 	uploadGIF(t, mux, http.MethodPost, "/anim", gifData, map[string]string{"id": "beta"})
 
-	req := httptest.NewRequest(http.MethodGet, "/anim", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
+	rec := get(t, mux, "/anim", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -264,17 +299,27 @@ func TestUpdateAnimation(t *testing.T) {
 	gifData := testGIF(t)
 	uploadGIF(t, mux, http.MethodPost, "/anim", gifData, map[string]string{"id": "upd", "name": "Old"})
 
-	rec := uploadGIF(t, mux, http.MethodPut, "/anim/upd", gifData, map[string]string{"name": "New"})
+	rec := uploadGIF(t, mux, http.MethodPut, "/anim/upd", gifData, map[string]string{
+		"name":        "New",
+		"description": "A description",
+		"width":       "30",
+		"height":      "15",
+		"max_frames":  "3",
+		"min_delay":   "200",
+	})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("UpdateAnimation status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
 	var anim model.Animation
 	if err := json.Unmarshal(rec.Body.Bytes(), &anim); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if anim.ID != "upd" || anim.Name != "New" {
+	if anim.ID != "upd" || anim.Name != "New" || anim.Description != "A description" {
 		t.Errorf("updated animation = %+v", anim)
+	}
+	if anim.Width != 30 || anim.Height != 15 || anim.Delay != 200 {
+		t.Errorf("options not applied: %+v", anim)
 	}
 }
 
@@ -286,60 +331,23 @@ func TestUpdateAnimationMissing(t *testing.T) {
 	}
 }
 
-func TestUpdateAnimationWithOptions(t *testing.T) {
+func TestDeleteAnimation(t *testing.T) {
 	mux := newTestServer(t)
-	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "upd2"})
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "del"})
 
-	rec := uploadGIF(t, mux, http.MethodPut, "/anim/upd2", testGIF(t), map[string]string{
-		"name":        "New Name",
-		"description": "A description",
-		"width":       "30",
-		"height":      "15",
-		"max_frames":  "3",
-		"min_delay":   "200",
-	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec := del(t, mux, "/anim/del", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
-	var anim model.Animation
-	if err := json.Unmarshal(rec.Body.Bytes(), &anim); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if anim.ID != "upd2" || anim.Name != "New Name" || anim.Description != "A description" {
-		t.Errorf("updated animation = %+v", anim)
-	}
-	if anim.Width != 30 || anim.Height != 15 || anim.Delay != 200 {
-		t.Errorf("options not applied: %+v", anim)
+	// Deleting again should 404.
+	if rec := del(t, mux, "/anim/del", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("second delete status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 
 func TestDeleteAnimationInvalidID(t *testing.T) {
 	mux := newTestServer(t)
-	req := httptest.NewRequest(http.MethodDelete, "/anim/!!!", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
+	if rec := del(t, mux, "/anim/!!!", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestDeleteAnimation(t *testing.T) {
-	mux := newTestServer(t)
-	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "del"})
-
-	req := httptest.NewRequest(http.MethodDelete, "/anim/del", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DeleteAnimation status = %d, want %d", rec.Code, http.StatusNoContent)
-	}
-
-	// Deleting again should 404.
-	req2 := httptest.NewRequest(http.MethodDelete, "/anim/del", nil)
-	rec2 := httptest.NewRecorder()
-	mux.ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusNotFound {
-		t.Errorf("second delete status = %d, want %d", rec2.Code, http.StatusNotFound)
 	}
 }
 
@@ -362,79 +370,16 @@ func TestCreateAnimationInvalidGIF(t *testing.T) {
 	}
 }
 
-func TestUniqueID(t *testing.T) {
-	s, err := store.New(t.TempDir())
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	h := NewAnimationsHandler(s)
-
-	// First use returns the base.
-	if got := h.uniqueID("base"); got != "base" {
-		t.Errorf("uniqueID first = %q, want base", got)
-	}
-	// After saving base, next returns base-1.
-	if err := s.Save(&model.Animation{ID: "base"}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if got := h.uniqueID("base"); got != "base-1" {
-		t.Errorf("uniqueID second = %q, want base-1", got)
-	}
-}
-
-func TestServeHome(t *testing.T) {
+func TestCreateAnimationInvalidID(t *testing.T) {
 	mux := newTestServer(t)
-	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "home", "name": "Home Anim"})
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !strings.Contains(rec.Body.String(), "Home Anim") {
-		t.Error("expected animation name in home page")
-	}
-}
-
-func TestServeHomeCurl(t *testing.T) {
-	mux := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("User-Agent", "curl/8.0")
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !strings.Contains(rec.Body.String(), "Usage:") {
-		t.Error("expected curl help text")
-	}
-}
-
-func TestGetAnimationInvalidID(t *testing.T) {
-	mux := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/anim/!!!", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	// id with no alphanumeric characters is rejected.
+	rec := uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "!!!"})
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 
-func TestGetAnimationNotFound(t *testing.T) {
-	mux := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/anim/missing", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
-}
-
-func TestCreateAnimationWithOptions(t *testing.T) {
+func TestCreateAnimationOptions(t *testing.T) {
 	mux := newTestServer(t)
 	rec := uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{
 		"id":         "opt",
@@ -450,11 +395,8 @@ func TestCreateAnimationWithOptions(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &anim); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if anim.Width != 40 || anim.Height != 20 {
-		t.Errorf("dimensions = %dx%d, want 40x20", anim.Width, anim.Height)
-	}
-	if anim.Delay != 100 {
-		t.Errorf("delay = %d, want 100", anim.Delay)
+	if anim.Width != 40 || anim.Height != 20 || anim.Delay != 100 {
+		t.Errorf("options not applied: %+v", anim)
 	}
 }
 
@@ -474,11 +416,154 @@ func TestCreateAnimationAutoID(t *testing.T) {
 	}
 }
 
-func TestCreateAnimationInvalidID(t *testing.T) {
+func TestUniqueID(t *testing.T) {
+	s, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	h := NewAnimationsHandler(s, "http://localhost:8080")
+
+	// First use returns the base.
+	if got := h.uniqueID("base"); got != "base" {
+		t.Errorf("uniqueID first = %q, want base", got)
+	}
+	// After saving base, next returns base-1.
+	if err := s.Save(&model.Animation{ID: "base"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := h.uniqueID("base"); got != "base-1" {
+		t.Errorf("uniqueID second = %q, want base-1", got)
+	}
+}
+
+func TestServeHome(t *testing.T) {
 	mux := newTestServer(t)
-	// id with no alphanumeric characters is rejected.
-	rec := uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "!!!"})
-	if rec.Code != http.StatusBadRequest {
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "home", "name": "Home Anim"})
+
+	rec := get(t, mux, "/", "Mozilla/5.0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "Home Anim") {
+		t.Error("expected animation name in home page")
+	}
+}
+
+func TestServeHomeCurl(t *testing.T) {
+	mux := newTestServer(t)
+	rec := get(t, mux, "/", "curl/8.0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "List all animations") {
+		t.Error("expected curl help text")
+	}
+}
+
+func TestGetAnimationInvalidID(t *testing.T) {
+	mux := newTestServer(t)
+	if rec := get(t, mux, "/anim/!!!", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestGetAnimationNotFound(t *testing.T) {
+	mux := newTestServer(t)
+	if rec := get(t, mux, "/anim/missing", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestListAnimationsCurl(t *testing.T) {
+	mux := newTestServer(t)
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{
+		"id":          "alpha",
+		"name":        "Alpha",
+		"description": "The first one",
+	})
+
+	rec := get(t, mux, "/anim", "curl/8.0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Alpha", "alpha", "The first one", "curl http://localhost:8080/anim/alpha"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("curl list missing %q; body:\n%s", want, body)
+		}
+	}
+}
+
+func TestListAnimationsCurlEmpty(t *testing.T) {
+	mux := newTestServer(t)
+	rec := get(t, mux, "/anim", "curl/8.0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "No animations yet") {
+		t.Errorf("expected empty-list hint; body:\n%s", rec.Body.String())
+	}
+}
+
+func TestCreateAnimationCurl(t *testing.T) {
+	mux := newTestServer(t)
+	rec := uploadGIFCurl(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{
+		"id":   "created",
+		"name": "Created",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Created") || !strings.Contains(body, "curl http://localhost:8080/anim/created") {
+		t.Errorf("unexpected curl create response:\n%s", body)
+	}
+}
+
+func TestUpdateAnimationCurl(t *testing.T) {
+	mux := newTestServer(t)
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "updc"})
+
+	rec := uploadGIFCurl(t, mux, http.MethodPut, "/anim/updc", testGIF(t), map[string]string{"name": "Updated"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Updated") {
+		t.Errorf("unexpected curl update response:\n%s", rec.Body.String())
+	}
+}
+
+func TestDeleteAnimationCurl(t *testing.T) {
+	mux := newTestServer(t)
+	uploadGIF(t, mux, http.MethodPost, "/anim", testGIF(t), map[string]string{"id": "delc"})
+
+	rec := del(t, mux, "/anim/delc", "curl/8.0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "Deleted") {
+		t.Errorf("unexpected curl delete response:\n%s", rec.Body.String())
+	}
+}
+
+// TestErrorFormatting checks that errors are styled for curl and plain for
+// other clients.
+func TestErrorFormatting(t *testing.T) {
+	mux := newTestServer(t)
+
+	curlRec := get(t, mux, "/anim/missing", "curl/8.0")
+	if curlRec.Code != http.StatusNotFound {
+		t.Fatalf("curl status = %d, want %d", curlRec.Code, http.StatusNotFound)
+	}
+	if !strings.Contains(curlRec.Body.String(), "Error:") {
+		t.Errorf("expected styled error prefix; body:\n%s", curlRec.Body.String())
+	}
+
+	plainRec := get(t, mux, "/anim/missing", "Mozilla/5.0")
+	if plainRec.Code != http.StatusNotFound {
+		t.Fatalf("plain status = %d, want %d", plainRec.Code, http.StatusNotFound)
+	}
+	if strings.Contains(plainRec.Body.String(), "\033[") {
+		t.Errorf("non-curl error should not contain ANSI escapes; body:\n%s", plainRec.Body.String())
 	}
 }

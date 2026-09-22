@@ -20,38 +20,42 @@ const maxUploadSize = 10 << 20 // 10 MiB
 
 // AnimationsHandler exposes REST endpoints for animation CRUD.
 type AnimationsHandler struct {
-	Store *store.Store
+	Store   *store.Store
+	baseURL string
 }
 
 // NewAnimationsHandler creates an AnimationsHandler.
-func NewAnimationsHandler(s *store.Store) *AnimationsHandler {
-	return &AnimationsHandler{Store: s}
+func NewAnimationsHandler(s *store.Store, baseURL string) *AnimationsHandler {
+	return &AnimationsHandler{Store: s, baseURL: baseURL}
 }
 
-// ListAnimations returns a JSON array of animation summaries.
+// animationSummary is the metadata returned for an animation, without frames.
+type animationSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Delay       int    `json:"delay"`
+}
+
+// ListAnimations returns a JSON array of animation summaries, or a styled
+// list for curl clients.
 func (h *AnimationsHandler) ListAnimations(w http.ResponseWriter, r *http.Request) {
-	ids, err := h.Store.List()
+	anims, err := h.Store.LoadAll()
 	if err != nil {
 		http.Error(w, "failed to list animations", http.StatusInternalServerError)
 		return
 	}
 
-	type summary struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description,omitempty"`
-		Width       int    `json:"width"`
-		Height      int    `json:"height"`
-		Delay       int    `json:"delay"`
+	if isCurl(r.UserAgent()) {
+		h.writeCurlList(w, anims)
+		return
 	}
 
-	summaries := make([]summary, 0, len(ids))
-	for _, id := range ids {
-		anim, err := h.Store.Load(id)
-		if err != nil {
-			continue
-		}
-		summaries = append(summaries, summary{
+	summaries := make([]animationSummary, 0, len(anims))
+	for _, anim := range anims {
+		summaries = append(summaries, animationSummary{
 			ID:          anim.ID,
 			Name:        anim.Name,
 			Description: anim.Description,
@@ -60,27 +64,50 @@ func (h *AnimationsHandler) ListAnimations(w http.ResponseWriter, r *http.Reques
 			Delay:       anim.Delay,
 		})
 	}
-
 	writeJSON(w, http.StatusOK, summaries)
+}
+
+// writeCurlList renders the animation list as styled text for terminals.
+func (h *AnimationsHandler) writeCurlList(w http.ResponseWriter, anims []*model.Animation) {
+	var b strings.Builder
+
+	if len(anims) == 0 {
+		fmt.Fprintf(&b, "%s\n\n", subtitle("No animations yet."))
+		fmt.Fprintf(&b, "Upload one with:\n  %s\n", command("curl "+h.baseURL+"/anim -F \"file=@animation.gif\""))
+		writeText(w, http.StatusOK, b.String())
+		return
+	}
+
+	if len(anims) == 1 {
+		fmt.Fprintf(&b, "%s\n", subtitle("1 animation"))
+	} else {
+		fmt.Fprintf(&b, "%s\n", subtitle(fmt.Sprintf("%d animations", len(anims))))
+	}
+
+	for _, anim := range anims {
+		fmt.Fprintf(&b, "\n%s", animLong(anim, h.baseURL))
+	}
+
+	writeText(w, http.StatusOK, b.String())
 }
 
 // GetAnimation streams the ASCII animation for curl clients, or returns JSON metadata.
 func (h *AnimationsHandler) GetAnimation(w http.ResponseWriter, r *http.Request) {
+	curl := isCurl(r.UserAgent())
+
 	id := sanitizeID(r.PathValue("id"))
 	if id == "" {
-		http.Error(w, "invalid animation id", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "invalid animation id")
 		return
 	}
 
 	anim, err := h.Store.Load(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		h.fail(w, curl, http.StatusNotFound, err.Error())
 		return
 	}
 
-	// Check if the client is curl.
-	ua := r.UserAgent()
-	if strings.HasPrefix(ua, "curl/") {
+	if curl {
 		streamAnimation(w, anim)
 		return
 	}
@@ -109,15 +136,17 @@ func streamAnimation(w http.ResponseWriter, anim *model.Animation) {
 
 // CreateAnimation uploads a GIF and stores it as an ASCII animation.
 func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Request) {
+	curl := isCurl(r.UserAgent())
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		http.Error(w, "file too large or invalid multipart form", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "file too large or invalid multipart form")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "missing file field", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "missing file field")
 		return
 	}
 	defer file.Close()
@@ -125,7 +154,7 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 	// Read the GIF data.
 	gifData, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "failed to read file", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "failed to read file")
 		return
 	}
 
@@ -136,7 +165,7 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 	// Read GIF header to get source dimensions.
 	srcW, srcH, err := gifDimensions(bytes.NewReader(gifData))
 	if err != nil {
-		http.Error(w, "failed to read gif dimensions", http.StatusUnprocessableEntity)
+		h.fail(w, curl, http.StatusUnprocessableEntity, "failed to read gif dimensions")
 		return
 	}
 
@@ -159,7 +188,7 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 	// Convert GIF to ASCII.
 	anim, err := ascii.ConvertGIF(bytes.NewReader(gifData), targetWidth, targetHeight, maxFrames, minDelayMs)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to convert gif: %v", err), http.StatusUnprocessableEntity)
+		h.fail(w, curl, http.StatusUnprocessableEntity, fmt.Sprintf("failed to convert gif: %v", err))
 		return
 	}
 
@@ -171,7 +200,7 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 		rawID = sanitizeID(rawID)
 	}
 	if rawID == "" {
-		http.Error(w, "invalid id: must contain at least one alphanumeric character", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "invalid id: must contain at least one alphanumeric character")
 		return
 	}
 	anim.ID = h.uniqueID(rawID)
@@ -184,7 +213,12 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 
 	// Save to store.
 	if err := h.Store.Save(anim); err != nil {
-		http.Error(w, "failed to save animation", http.StatusInternalServerError)
+		h.fail(w, curl, http.StatusInternalServerError, "failed to save animation")
+		return
+	}
+
+	if curl {
+		h.writeCurlCreated(w, anim)
 		return
 	}
 
@@ -193,34 +227,36 @@ func (h *AnimationsHandler) CreateAnimation(w http.ResponseWriter, r *http.Reque
 
 // UpdateAnimation replaces an existing animation with a new GIF upload.
 func (h *AnimationsHandler) UpdateAnimation(w http.ResponseWriter, r *http.Request) {
+	curl := isCurl(r.UserAgent())
+
 	id := sanitizeID(r.PathValue("id"))
 	if id == "" {
-		http.Error(w, "invalid animation id", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "invalid animation id")
 		return
 	}
 
 	// Check that the animation exists.
 	if _, err := h.Store.Load(id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		h.fail(w, curl, http.StatusNotFound, err.Error())
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		http.Error(w, "file too large or invalid multipart form", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "file too large or invalid multipart form")
 		return
 	}
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "missing file field", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "missing file field")
 		return
 	}
 	defer file.Close()
 
 	gifData, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "failed to read file", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "failed to read file")
 		return
 	}
 
@@ -229,7 +265,7 @@ func (h *AnimationsHandler) UpdateAnimation(w http.ResponseWriter, r *http.Reque
 
 	srcW, srcH, err := gifDimensions(bytes.NewReader(gifData))
 	if err != nil {
-		http.Error(w, "failed to read gif dimensions", http.StatusUnprocessableEntity)
+		h.fail(w, curl, http.StatusUnprocessableEntity, "failed to read gif dimensions")
 		return
 	}
 
@@ -250,7 +286,7 @@ func (h *AnimationsHandler) UpdateAnimation(w http.ResponseWriter, r *http.Reque
 
 	anim, err := ascii.ConvertGIF(bytes.NewReader(gifData), targetWidth, targetHeight, maxFrames, minDelayMs)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to convert gif: %v", err), http.StatusUnprocessableEntity)
+		h.fail(w, curl, http.StatusUnprocessableEntity, fmt.Sprintf("failed to convert gif: %v", err))
 		return
 	}
 
@@ -264,7 +300,12 @@ func (h *AnimationsHandler) UpdateAnimation(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := h.Store.Save(anim); err != nil {
-		http.Error(w, "failed to save animation", http.StatusInternalServerError)
+		h.fail(w, curl, http.StatusInternalServerError, "failed to save animation")
+		return
+	}
+
+	if curl {
+		h.writeCurlUpdated(w, anim)
 		return
 	}
 
@@ -273,14 +314,27 @@ func (h *AnimationsHandler) UpdateAnimation(w http.ResponseWriter, r *http.Reque
 
 // DeleteAnimation removes an animation.
 func (h *AnimationsHandler) DeleteAnimation(w http.ResponseWriter, r *http.Request) {
+	curl := isCurl(r.UserAgent())
+
 	id := sanitizeID(r.PathValue("id"))
 	if id == "" {
-		http.Error(w, "invalid animation id", http.StatusBadRequest)
+		h.fail(w, curl, http.StatusBadRequest, "invalid animation id")
+		return
+	}
+
+	anim, err := h.Store.Load(id)
+	if err != nil {
+		h.fail(w, curl, http.StatusNotFound, err.Error())
 		return
 	}
 
 	if err := h.Store.Delete(id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		h.fail(w, curl, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if curl {
+		writeText(w, http.StatusOK, success("Deleted")+" "+animShort(anim)+"\n")
 		return
 	}
 
@@ -292,6 +346,25 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// fail writes an error response, styled for curl clients and plain otherwise.
+func (h *AnimationsHandler) fail(w http.ResponseWriter, curl bool, status int, msg string) {
+	if curl {
+		writeError(w, status, msg)
+		return
+	}
+	http.Error(w, msg, status)
+}
+
+// writeCurlCreated confirms a successful upload for curl clients.
+func (h *AnimationsHandler) writeCurlCreated(w http.ResponseWriter, anim *model.Animation) {
+	writeText(w, http.StatusCreated, success("Created")+" "+animLong(anim, h.baseURL))
+}
+
+// writeCurlUpdated confirms a successful replacement for curl clients.
+func (h *AnimationsHandler) writeCurlUpdated(w http.ResponseWriter, anim *model.Animation) {
+	writeText(w, http.StatusOK, success("Updated")+" "+animLong(anim, h.baseURL))
 }
 
 // nonIDChar matches anything that is NOT \w or dash.
