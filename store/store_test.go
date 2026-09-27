@@ -67,6 +67,26 @@ func TestStoreLoadMissing(t *testing.T) {
 	}
 }
 
+func TestStoreLoadAll(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for _, id := range []string{"b", "a"} {
+		if err := s.Save(&model.Animation{ID: id, Name: id}); err != nil {
+			t.Fatalf("Save %s: %v", id, err)
+		}
+	}
+
+	anims, err := s.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	if len(anims) != 2 || anims[0].ID != "a" || anims[1].ID != "b" {
+		t.Errorf("LoadAll = %+v, want [a b]", anims)
+	}
+}
+
 func TestStoreDeleteMissing(t *testing.T) {
 	s, err := New(t.TempDir())
 	if err != nil {
