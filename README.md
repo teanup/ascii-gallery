@@ -4,6 +4,8 @@
 &thinsp;
 [![CI Workflow Status](https://img.shields.io/github/actions/workflow/status/teanup/ascii-gallery/ci.yml?style=flat-square&logo=github&logoColor=white&label=CI)](https://github.com/teanup/ascii-gallery/actions/workflows/ci.yml)
 &thinsp;
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/teanup/ascii-gallery/codeql.yml?style=flat-square&logo=github&logoColor=white&label=CodeQL)](https://github.com/teanup/ascii-gallery/actions/workflows/codeql.yml)
+&thinsp;
 [![Code Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fteanup%2Fascii-gallery%2Frefs%2Fheads%2Fbadges%2Fcoverage.json&style=flat-square&logo=codecov&logoColor=white)](https://github.com/teanup/ascii-gallery/actions/workflows/ci.yml)
 &thinsp;
 [![Go Version](https://img.shields.io/github/go-mod/go-version/teanup/ascii-gallery?style=flat-square&logo=go&logoColor=white)](https://github.com/teanup/ascii-gallery/blob/main/go.mod)
@@ -15,6 +17,22 @@ A web server that converts GIFs into animated, colored ASCII art streamable dire
 ```bash
 curl -L ascii.lag.tf/anim/parrot
 ```
+
+<details><summary>PowerShell Example</summary>
+
+```pwsh
+$WebRequest = [System.Net.HttpWebRequest]::Create('https://ascii.lag.tf/anim/parrot')
+$WebRequest.UserAgent = 'curl/8.0'
+$Stream = $WebRequest.GetResponse().GetResponseStream()
+$Reader = [System.IO.StreamReader]::new($Stream)
+while ($Reader.Peek() -ne -1) {
+  $Reader.ReadLine()
+}
+$Reader.Dispose()
+$Stream.Dispose()
+```
+
+</details>
 
 ### Features
 
@@ -52,7 +70,7 @@ volumes:
   ascii-data:
 ```
 
-To run from source without Docker:
+To run from source without a container:
 
 ```bash
 DATA_DIR=/tmp/ascii-data go run main.go
@@ -126,4 +144,4 @@ This project started as a fork of [`ascii-live`](https://github.com/hugomd/ascii
 
 It has since been rewritten from scratch to add a web interface, server-side conversion, and a more complete API.
 
-Contributions, issues, and creative GIFs are welcome.
+Contributions, issues, and creative GIFs are welcome!
