@@ -57,7 +57,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout badges branch
+      - name: Checkout badges
         uses: actions/checkout@v7
         with:
           ref: badges
